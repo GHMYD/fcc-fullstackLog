@@ -1,0 +1,1861 @@
+From a97bce0948e9033a125fa0d57121ec52de3e4a26 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 17 Aug 2026 18:35:56 +0000
+Subject: [PATCH] Agrega sistema bancario en C# con CRUD, transferencias y logs
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Consola en .NET 8 con login por usuario/contraseña (PBKDF2 + sal),
+transferencias entre cuentas, depósitos/retiros, consulta de saldo,
+historial de movimientos, logs de auditoría con fecha/hora/minuto y
+CRUD de usuarios para administradores. Persistencia en JSON e incluye
+25 pruebas unitarias xUnit.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HyiWZA6iQr5rFjfqUjH7nH
+---
+ BankingSystem/.gitignore                      |  12 +
+ BankingSystem/BankingSystem.sln               |  36 ++
+ BankingSystem/README.md                       |  78 ++++
+ .../src/BankingSystem/BankingSystem.csproj    |  10 +
+ .../src/BankingSystem/Datos/AlmacenJson.cs    |  80 ++++
+ .../src/BankingSystem/Datos/RutasDatos.cs     |  11 +
+ .../BankingSystem/Interfaz/ConsolaAyudante.cs | 121 ++++++
+ .../BankingSystem/Interfaz/MenuPrincipal.cs   | 385 ++++++++++++++++++
+ .../src/BankingSystem/Modelos/Cuenta.cs       |  10 +
+ .../src/BankingSystem/Modelos/Transaccion.cs  |  21 +
+ .../src/BankingSystem/Modelos/Usuario.cs      |  14 +
+ BankingSystem/src/BankingSystem/Program.cs    |  18 +
+ .../Servicios/ExcepcionesBancarias.cs         |  21 +
+ .../BankingSystem/Servicios/FormatoMoneda.cs  |  13 +
+ .../Servicios/ServicioAutenticacion.cs        |  96 +++++
+ .../Servicios/ServicioContrasenas.cs          |  42 ++
+ .../Servicios/ServicioRegistro.cs             |  46 +++
+ .../Servicios/ServicioTransacciones.cs        | 126 ++++++
+ .../Servicios/ServicioUsuarios.cs             | 139 +++++++
+ .../BankingSystem.Tests.csproj                |  29 ++
+ .../tests/BankingSystem.Tests/GlobalUsings.cs |   1 +
+ .../PruebaConAlmacenamientoTemporal.cs        |  39 ++
+ .../ServicioAutenticacionTests.cs             |  57 +++
+ .../ServicioContrasenasTests.cs               |  32 ++
+ .../ServicioTransaccionesTests.cs             |  92 +++++
+ .../ServicioUsuariosTests.cs                  | 101 +++++
+ 26 files changed, 1630 insertions(+)
+ create mode 100644 BankingSystem/.gitignore
+ create mode 100644 BankingSystem/BankingSystem.sln
+ create mode 100644 BankingSystem/README.md
+ create mode 100644 BankingSystem/src/BankingSystem/BankingSystem.csproj
+ create mode 100644 BankingSystem/src/BankingSystem/Datos/AlmacenJson.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Datos/RutasDatos.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Interfaz/ConsolaAyudante.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Interfaz/MenuPrincipal.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Modelos/Cuenta.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Modelos/Transaccion.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Modelos/Usuario.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Program.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Servicios/ExcepcionesBancarias.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Servicios/FormatoMoneda.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Servicios/ServicioAutenticacion.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Servicios/ServicioContrasenas.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Servicios/ServicioRegistro.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Servicios/ServicioTransacciones.cs
+ create mode 100644 BankingSystem/src/BankingSystem/Servicios/ServicioUsuarios.cs
+ create mode 100644 BankingSystem/tests/BankingSystem.Tests/BankingSystem.Tests.csproj
+ create mode 100644 BankingSystem/tests/BankingSystem.Tests/GlobalUsings.cs
+ create mode 100644 BankingSystem/tests/BankingSystem.Tests/PruebaConAlmacenamientoTemporal.cs
+ create mode 100644 BankingSystem/tests/BankingSystem.Tests/ServicioAutenticacionTests.cs
+ create mode 100644 BankingSystem/tests/BankingSystem.Tests/ServicioContrasenasTests.cs
+ create mode 100644 BankingSystem/tests/BankingSystem.Tests/ServicioTransaccionesTests.cs
+ create mode 100644 BankingSystem/tests/BankingSystem.Tests/ServicioUsuariosTests.cs
+
+diff --git a/BankingSystem/.gitignore b/BankingSystem/.gitignore
+new file mode 100644
+index 0000000..7b2e4d9
+--- /dev/null
++++ b/BankingSystem/.gitignore
+@@ -0,0 +1,12 @@
++## .NET build artifacts
++bin/
++obj/
++
++## Datos y logs generados en tiempo de ejecución
++**/data/
++**/logs/
++
++## IDE
++.vs/
++.vscode/
++*.user
+diff --git a/BankingSystem/BankingSystem.sln b/BankingSystem/BankingSystem.sln
+new file mode 100644
+index 0000000..727a39b
+--- /dev/null
++++ b/BankingSystem/BankingSystem.sln
+@@ -0,0 +1,36 @@
++﻿
++Microsoft Visual Studio Solution File, Format Version 12.00
++# Visual Studio Version 17
++VisualStudioVersion = 17.0.31903.59
++MinimumVisualStudioVersion = 10.0.40219.1
++Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{B1A492D0-E585-4832-962D-C3B74655CA3D}"
++EndProject
++Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BankingSystem", "src\BankingSystem\BankingSystem.csproj", "{C63BD59F-B950-4670-868C-DD4FFD781420}"
++EndProject
++Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{52AF1AC4-4180-44AC-B808-86E91963C51A}"
++EndProject
++Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BankingSystem.Tests", "tests\BankingSystem.Tests\BankingSystem.Tests.csproj", "{BC444B7A-AD1B-4537-A4F9-5AFD47760265}"
++EndProject
++Global
++	GlobalSection(SolutionConfigurationPlatforms) = preSolution
++		Debug|Any CPU = Debug|Any CPU
++		Release|Any CPU = Release|Any CPU
++	EndGlobalSection
++	GlobalSection(SolutionProperties) = preSolution
++		HideSolutionNode = FALSE
++	EndGlobalSection
++	GlobalSection(ProjectConfigurationPlatforms) = postSolution
++		{C63BD59F-B950-4670-868C-DD4FFD781420}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
++		{C63BD59F-B950-4670-868C-DD4FFD781420}.Debug|Any CPU.Build.0 = Debug|Any CPU
++		{C63BD59F-B950-4670-868C-DD4FFD781420}.Release|Any CPU.ActiveCfg = Release|Any CPU
++		{C63BD59F-B950-4670-868C-DD4FFD781420}.Release|Any CPU.Build.0 = Release|Any CPU
++		{BC444B7A-AD1B-4537-A4F9-5AFD47760265}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
++		{BC444B7A-AD1B-4537-A4F9-5AFD47760265}.Debug|Any CPU.Build.0 = Debug|Any CPU
++		{BC444B7A-AD1B-4537-A4F9-5AFD47760265}.Release|Any CPU.ActiveCfg = Release|Any CPU
++		{BC444B7A-AD1B-4537-A4F9-5AFD47760265}.Release|Any CPU.Build.0 = Release|Any CPU
++	EndGlobalSection
++	GlobalSection(NestedProjects) = preSolution
++		{C63BD59F-B950-4670-868C-DD4FFD781420} = {B1A492D0-E585-4832-962D-C3B74655CA3D}
++		{BC444B7A-AD1B-4537-A4F9-5AFD47760265} = {52AF1AC4-4180-44AC-B808-86E91963C51A}
++	EndGlobalSection
++EndGlobal
+diff --git a/BankingSystem/README.md b/BankingSystem/README.md
+new file mode 100644
+index 0000000..e2e6f3f
+--- /dev/null
++++ b/BankingSystem/README.md
+@@ -0,0 +1,78 @@
++# Sistema Bancario en C#
++
++Aplicación de consola en C# (.NET 8) que simula un sistema bancario simple,
++pensada como proyecto de aprendizaje.
++
++## Funcionalidades
++
++- **Inicio de sesión** por usuario y contraseña (contraseñas guardadas con
++  hash PBKDF2-SHA256 + sal aleatoria por usuario, nunca en texto plano).
++- **Transferencias** entre cuentas usando el número de cuenta destino.
++- **Consulta de saldo** de la cuenta propia.
++- **Registro de ingresos y salidas** (depósitos y retiros), cada uno queda
++  guardado con el saldo resultante y una descripción.
++- **Historial de movimientos** por cuenta (ingresos, salidas, transferencias
++  enviadas y recibidas).
++- **Logs de auditoría** con marca de fecha, hora y minuto exactos
++  (`logs/AAAA-MM-DD.log`), registrando inicios de sesión, operaciones
++  bancarias y cambios administrativos.
++- **CRUD de usuarios** (solo administradores): crear, listar, actualizar
++  (nombre, rol, estado activo/inactivo), restablecer contraseña y eliminar.
++
++## Estructura del proyecto
++
++```
++BankingSystem/
++├── BankingSystem.sln
++├── src/BankingSystem/
++│   ├── Program.cs              # Punto de entrada, arma las dependencias
++│   ├── Modelos/                # Usuario, Cuenta, Transaccion
++│   ├── Datos/                  # Persistencia en JSON (AlmacenJson<T>)
++│   ├── Servicios/               # Autenticación, contraseñas, usuarios,
++│   │                            # transacciones, logs, excepciones
++│   └── Interfaz/                # Menús de consola
++└── tests/BankingSystem.Tests/   # Pruebas unitarias (xUnit)
++```
++
++Los datos se guardan en archivos JSON (`data/usuarios.json`,
++`data/cuentas.json`, `data/transacciones.json`) junto al ejecutable, y los
++logs en la carpeta `logs/`. Ambas carpetas se generan automáticamente en el
++primer arranque y no se versionan (ver `.gitignore`).
++
++## Requisitos
++
++- [.NET SDK 8.0](https://dotnet.microsoft.com/download/dotnet/8.0)
++
++## Cómo ejecutar
++
++```bash
++cd BankingSystem
++dotnet run --project src/BankingSystem
++```
++
++En el primer arranque, si no existe ningún usuario, el sistema crea
++automáticamente un administrador por defecto:
++
++- **Usuario:** `admin`
++- **Contraseña:** `Admin123!`
++
++Se recomienda cambiar esta contraseña desde el menú de operaciones
++bancarias ("Cambiar mi contraseña") después del primer ingreso.
++
++## Cómo ejecutar las pruebas
++
++```bash
++cd BankingSystem
++dotnet test
++```
++
++## Notas de diseño
++
++- La persistencia usa archivos JSON en lugar de una base de datos para
++  mantener el proyecto simple y fácil de ejecutar sin dependencias
++  externas; `AlmacenJson<T>` centraliza las operaciones CRUD genéricas.
++- Las contraseñas nunca se guardan en texto plano: se derivan con PBKDF2
++  (100,000 iteraciones, SHA-256) usando una sal aleatoria de 16 bytes por
++  usuario.
++- Cada usuario tiene una única cuenta asociada (relación 1 a 1), lo que
++  simplifica las operaciones de saldo y transferencia.
+diff --git a/BankingSystem/src/BankingSystem/BankingSystem.csproj b/BankingSystem/src/BankingSystem/BankingSystem.csproj
+new file mode 100644
+index 0000000..2150e37
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/BankingSystem.csproj
+@@ -0,0 +1,10 @@
++﻿<Project Sdk="Microsoft.NET.Sdk">
++
++  <PropertyGroup>
++    <OutputType>Exe</OutputType>
++    <TargetFramework>net8.0</TargetFramework>
++    <ImplicitUsings>enable</ImplicitUsings>
++    <Nullable>enable</Nullable>
++  </PropertyGroup>
++
++</Project>
+diff --git a/BankingSystem/src/BankingSystem/Datos/AlmacenJson.cs b/BankingSystem/src/BankingSystem/Datos/AlmacenJson.cs
+new file mode 100644
+index 0000000..6ecf870
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Datos/AlmacenJson.cs
+@@ -0,0 +1,80 @@
++using System.Text.Json;
++
++namespace BankingSystem.Datos;
++
++/// <summary>
++/// Repositorio genérico en memoria respaldado por un archivo JSON.
++/// Provee las operaciones CRUD base (Crear, Leer, Actualizar, Eliminar)
++/// para cualquier entidad con un campo "Id".
++/// </summary>
++public class AlmacenJson<T> where T : class
++{
++    private readonly string _rutaArchivo;
++    private readonly List<T> _elementos;
++    private static readonly JsonSerializerOptions OpcionesJson = new()
++    {
++        WriteIndented = true
++    };
++
++    public AlmacenJson(string rutaArchivo)
++    {
++        _rutaArchivo = rutaArchivo;
++        _elementos = CargarDesdeDisco();
++    }
++
++    private List<T> CargarDesdeDisco()
++    {
++        if (!File.Exists(_rutaArchivo))
++        {
++            return new List<T>();
++        }
++
++        var contenido = File.ReadAllText(_rutaArchivo);
++        if (string.IsNullOrWhiteSpace(contenido))
++        {
++            return new List<T>();
++        }
++
++        return JsonSerializer.Deserialize<List<T>>(contenido, OpcionesJson) ?? new List<T>();
++    }
++
++    private void GuardarEnDisco()
++    {
++        var directorio = Path.GetDirectoryName(_rutaArchivo);
++        if (!string.IsNullOrEmpty(directorio))
++        {
++            Directory.CreateDirectory(directorio);
++        }
++
++        var json = JsonSerializer.Serialize(_elementos, OpcionesJson);
++        File.WriteAllText(_rutaArchivo, json);
++    }
++
++    public IReadOnlyList<T> ObtenerTodos() => _elementos.AsReadOnly();
++
++    public T? BuscarPor(Func<T, bool> predicado) => _elementos.FirstOrDefault(predicado);
++
++    public IEnumerable<T> BuscarTodosPor(Func<T, bool> predicado) => _elementos.Where(predicado);
++
++    public void Agregar(T elemento)
++    {
++        _elementos.Add(elemento);
++        GuardarEnDisco();
++    }
++
++    public void Actualizar()
++    {
++        // Los objetos se modifican por referencia; esto persiste el estado actual.
++        GuardarEnDisco();
++    }
++
++    public bool Eliminar(T elemento)
++    {
++        var eliminado = _elementos.Remove(elemento);
++        if (eliminado)
++        {
++            GuardarEnDisco();
++        }
++        return eliminado;
++    }
++}
+diff --git a/BankingSystem/src/BankingSystem/Datos/RutasDatos.cs b/BankingSystem/src/BankingSystem/Datos/RutasDatos.cs
+new file mode 100644
+index 0000000..de9dafe
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Datos/RutasDatos.cs
+@@ -0,0 +1,11 @@
++namespace BankingSystem.Datos;
++
++public static class RutasDatos
++{
++    public static string CarpetaBase { get; } = Path.Combine(AppContext.BaseDirectory, "data");
++    public static string CarpetaLogs { get; } = Path.Combine(AppContext.BaseDirectory, "logs");
++
++    public static string ArchivoUsuarios => Path.Combine(CarpetaBase, "usuarios.json");
++    public static string ArchivoCuentas => Path.Combine(CarpetaBase, "cuentas.json");
++    public static string ArchivoTransacciones => Path.Combine(CarpetaBase, "transacciones.json");
++}
+diff --git a/BankingSystem/src/BankingSystem/Interfaz/ConsolaAyudante.cs b/BankingSystem/src/BankingSystem/Interfaz/ConsolaAyudante.cs
+new file mode 100644
+index 0000000..5db3e34
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Interfaz/ConsolaAyudante.cs
+@@ -0,0 +1,121 @@
++namespace BankingSystem.Interfaz;
++
++/// <summary>
++/// Utilidades de entrada/salida por consola: lectura de texto, números,
++/// contraseñas enmascaradas y mensajes con color.
++/// </summary>
++public static class ConsolaAyudante
++{
++    public static string LeerTexto(string etiqueta)
++    {
++        while (true)
++        {
++            Console.Write(etiqueta);
++            var valor = Console.ReadLine();
++            if (!string.IsNullOrWhiteSpace(valor))
++            {
++                return valor.Trim();
++            }
++            EscribirError("Este campo no puede estar vacío.");
++        }
++    }
++
++    public static string LeerContrasena(string etiqueta)
++    {
++        Console.Write(etiqueta);
++
++        if (Console.IsInputRedirected)
++        {
++            // No hay terminal interactiva (p. ej. entrada por tubería o en pruebas):
++            // no se puede enmascarar la escritura, así que se lee la línea tal cual.
++            return Console.ReadLine()?.Trim() ?? string.Empty;
++        }
++
++        var contrasena = string.Empty;
++        ConsoleKeyInfo tecla;
++
++        do
++        {
++            tecla = Console.ReadKey(intercept: true);
++
++            if (tecla.Key == ConsoleKey.Backspace && contrasena.Length > 0)
++            {
++                contrasena = contrasena[..^1];
++                Console.Write("\b \b");
++            }
++            else if (!char.IsControl(tecla.KeyChar))
++            {
++                contrasena += tecla.KeyChar;
++                Console.Write("*");
++            }
++        } while (tecla.Key != ConsoleKey.Enter);
++
++        Console.WriteLine();
++        return contrasena;
++    }
++
++    public static decimal LeerDecimal(string etiqueta)
++    {
++        while (true)
++        {
++            Console.Write(etiqueta);
++            var texto = Console.ReadLine();
++            if (decimal.TryParse(texto, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var valor)
++                && valor > 0)
++            {
++                return valor;
++            }
++            EscribirError("Ingresa un monto numérico válido, mayor que cero.");
++        }
++    }
++
++    public static int LeerEntero(string etiqueta, int minimo, int maximo)
++    {
++        while (true)
++        {
++            Console.Write(etiqueta);
++            var texto = Console.ReadLine();
++            if (int.TryParse(texto, out var valor) && valor >= minimo && valor <= maximo)
++            {
++                return valor;
++            }
++            EscribirError($"Ingresa un número entre {minimo} y {maximo}.");
++        }
++    }
++
++    public static bool LeerConfirmacion(string etiqueta)
++    {
++        Console.Write($"{etiqueta} (s/n): ");
++        var respuesta = Console.ReadLine();
++        return respuesta?.Trim().Equals("s", StringComparison.OrdinalIgnoreCase) == true;
++    }
++
++    public static void EscribirTitulo(string texto)
++    {
++        Console.WriteLine();
++        Console.ForegroundColor = ConsoleColor.Cyan;
++        Console.WriteLine($"== {texto} ==");
++        Console.ResetColor();
++    }
++
++    public static void EscribirExito(string texto)
++    {
++        Console.ForegroundColor = ConsoleColor.Green;
++        Console.WriteLine(texto);
++        Console.ResetColor();
++    }
++
++    public static void EscribirError(string texto)
++    {
++        Console.ForegroundColor = ConsoleColor.Red;
++        Console.WriteLine(texto);
++        Console.ResetColor();
++    }
++
++    public static void Pausar()
++    {
++        Console.WriteLine();
++        Console.WriteLine("Presiona ENTER para continuar...");
++        Console.ReadLine();
++    }
++}
+diff --git a/BankingSystem/src/BankingSystem/Interfaz/MenuPrincipal.cs b/BankingSystem/src/BankingSystem/Interfaz/MenuPrincipal.cs
+new file mode 100644
+index 0000000..3becd06
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Interfaz/MenuPrincipal.cs
+@@ -0,0 +1,385 @@
++using BankingSystem.Modelos;
++using BankingSystem.Servicios;
++using static BankingSystem.Interfaz.ConsolaAyudante;
++
++namespace BankingSystem.Interfaz;
++
++public class MenuPrincipal
++{
++    private readonly ServicioAutenticacion _autenticacion;
++    private readonly ServicioUsuarios _usuarios;
++    private readonly ServicioTransacciones _transacciones;
++    private readonly ServicioRegistro _registro;
++
++    public MenuPrincipal(
++        ServicioAutenticacion autenticacion,
++        ServicioUsuarios usuarios,
++        ServicioTransacciones transacciones,
++        ServicioRegistro registro)
++    {
++        _autenticacion = autenticacion;
++        _usuarios = usuarios;
++        _transacciones = transacciones;
++        _registro = registro;
++    }
++
++    public void Ejecutar()
++    {
++        EscribirTitulo("Sistema Bancario - C#");
++        Console.WriteLine("Sugerencia: en el primer arranque puedes ingresar con usuario 'admin' y contraseña 'Admin123!'.");
++
++        var continuar = true;
++        while (continuar)
++        {
++            Console.WriteLine();
++            Console.WriteLine("1) Iniciar sesión");
++            Console.WriteLine("2) Salir");
++            var opcion = LeerEntero("Selecciona una opción: ", 1, 2);
++
++            switch (opcion)
++            {
++                case 1:
++                    ManejarInicioSesion();
++                    break;
++                case 2:
++                    continuar = false;
++                    break;
++            }
++        }
++
++        Console.WriteLine("Hasta pronto.");
++    }
++
++    private void ManejarInicioSesion()
++    {
++        var nombreUsuario = LeerTexto("Usuario: ");
++        var contrasena = LeerContrasena("Contraseña: ");
++
++        try
++        {
++            var usuario = _autenticacion.IniciarSesion(nombreUsuario, contrasena);
++            EscribirExito($"Bienvenido, {usuario.NombreCompleto}.");
++
++            if (usuario.EsAdministrador)
++            {
++                MenuAdministrador(usuario);
++            }
++            else
++            {
++                MenuOperacionesBancarias(usuario);
++            }
++        }
++        catch (CredencialesInvalidasException ex)
++        {
++            EscribirError(ex.Message);
++        }
++    }
++
++    // ---------- Menú de administrador ----------
++
++    private void MenuAdministrador(Usuario admin)
++    {
++        var enSesion = true;
++        while (enSesion)
++        {
++            EscribirTitulo($"Panel de administración - {admin.NombreCompleto}");
++            Console.WriteLine("1) Gestión de usuarios (CRUD)");
++            Console.WriteLine("2) Mis operaciones bancarias");
++            Console.WriteLine("3) Ver registro de auditoría (logs)");
++            Console.WriteLine("4) Cerrar sesión");
++            var opcion = LeerEntero("Selecciona una opción: ", 1, 4);
++
++            switch (opcion)
++            {
++                case 1:
++                    GestionUsuarios(admin);
++                    break;
++                case 2:
++                    MenuOperacionesBancarias(admin);
++                    break;
++                case 3:
++                    VerLogs();
++                    break;
++                case 4:
++                    _registro.Registrar("Cierre de sesión.", admin.NombreUsuario);
++                    enSesion = false;
++                    break;
++            }
++        }
++    }
++
++    private void GestionUsuarios(Usuario admin)
++    {
++        var enGestion = true;
++        while (enGestion)
++        {
++            EscribirTitulo("Gestión de usuarios");
++            Console.WriteLine("1) Crear usuario");
++            Console.WriteLine("2) Listar usuarios");
++            Console.WriteLine("3) Actualizar usuario");
++            Console.WriteLine("4) Restablecer contraseña de un usuario");
++            Console.WriteLine("5) Eliminar usuario");
++            Console.WriteLine("6) Volver");
++            var opcion = LeerEntero("Selecciona una opción: ", 1, 6);
++
++            try
++            {
++                switch (opcion)
++                {
++                    case 1:
++                        CrearUsuario(admin);
++                        break;
++                    case 2:
++                        ListarUsuarios();
++                        break;
++                    case 3:
++                        ActualizarUsuario(admin);
++                        break;
++                    case 4:
++                        RestablecerContrasena(admin);
++                        break;
++                    case 5:
++                        EliminarUsuario(admin);
++                        break;
++                    case 6:
++                        enGestion = false;
++                        break;
++                }
++            }
++            catch (Exception ex) when (ex is OperacionInvalidaException or EntidadNoEncontradaException)
++            {
++                EscribirError(ex.Message);
++                Pausar();
++            }
++        }
++    }
++
++    private void CrearUsuario(Usuario admin)
++    {
++        EscribirTitulo("Crear usuario");
++        var nombreUsuario = LeerTexto("Nombre de usuario: ");
++        var nombreCompleto = LeerTexto("Nombre completo: ");
++        var contrasena = LeerContrasena("Contraseña: ");
++        var esAdmin = LeerConfirmacion("¿Es administrador?");
++
++        var usuario = _usuarios.CrearUsuario(nombreUsuario, nombreCompleto, contrasena, esAdmin, admin.NombreUsuario);
++        var cuenta = _usuarios.ObtenerCuentaDeUsuario(usuario);
++        EscribirExito($"Usuario '{usuario.NombreUsuario}' creado con número de cuenta {cuenta.NumeroCuenta}.");
++        Pausar();
++    }
++
++    private void ListarUsuarios()
++    {
++        EscribirTitulo("Usuarios registrados");
++        foreach (var usuario in _usuarios.ObtenerTodos())
++        {
++            var cuenta = _usuarios.ObtenerCuentaDeUsuario(usuario);
++            Console.WriteLine(
++                $"#{usuario.Id} | {usuario.NombreUsuario,-15} | {usuario.NombreCompleto,-25} | " +
++                $"Cuenta: {cuenta.NumeroCuenta} | Saldo: {FormatoMoneda.Formatear(cuenta.Saldo)} | " +
++                $"Admin: {(usuario.EsAdministrador ? "Sí" : "No")} | Activo: {(usuario.Activo ? "Sí" : "No")}");
++        }
++        Pausar();
++    }
++
++    private void ActualizarUsuario(Usuario admin)
++    {
++        EscribirTitulo("Actualizar usuario");
++        var id = LeerEntero("Id del usuario a actualizar: ", 1, int.MaxValue);
++        var usuario = _usuarios.ObtenerPorId(id);
++
++        Console.WriteLine($"Nombre completo actual: {usuario.NombreCompleto}");
++        var nombreCompleto = LeerTexto("Nuevo nombre completo (repite si no cambia): ");
++        var esAdmin = LeerConfirmacion("¿Es administrador?");
++        var activo = LeerConfirmacion("¿Cuenta activa?");
++
++        _usuarios.ActualizarDatos(usuario, nombreCompleto, esAdmin, activo, admin.NombreUsuario);
++        EscribirExito("Usuario actualizado correctamente.");
++        Pausar();
++    }
++
++    private void RestablecerContrasena(Usuario admin)
++    {
++        EscribirTitulo("Restablecer contraseña");
++        var id = LeerEntero("Id del usuario: ", 1, int.MaxValue);
++        var usuario = _usuarios.ObtenerPorId(id);
++        var nuevaContrasena = LeerContrasena("Nueva contraseña: ");
++
++        _usuarios.RestablecerContrasena(usuario, nuevaContrasena, admin.NombreUsuario);
++        EscribirExito("Contraseña restablecida correctamente.");
++        Pausar();
++    }
++
++    private void EliminarUsuario(Usuario admin)
++    {
++        EscribirTitulo("Eliminar usuario");
++        var id = LeerEntero("Id del usuario a eliminar: ", 1, int.MaxValue);
++        var usuario = _usuarios.ObtenerPorId(id);
++
++        if (!LeerConfirmacion($"¿Confirmas eliminar a '{usuario.NombreUsuario}'?"))
++        {
++            Console.WriteLine("Operación cancelada.");
++            Pausar();
++            return;
++        }
++
++        _usuarios.EliminarUsuario(usuario, admin);
++        EscribirExito("Usuario eliminado correctamente.");
++        Pausar();
++    }
++
++    private void VerLogs()
++    {
++        EscribirTitulo("Últimas líneas del registro de auditoría de hoy");
++        var lineas = _registro.LeerUltimasLineas(30);
++        if (lineas.Count == 0)
++        {
++            Console.WriteLine("Aún no hay registros para el día de hoy.");
++        }
++        else
++        {
++            foreach (var linea in lineas)
++            {
++                Console.WriteLine(linea);
++            }
++        }
++        Pausar();
++    }
++
++    // ---------- Menú de operaciones bancarias (usuario o admin) ----------
++
++    private void MenuOperacionesBancarias(Usuario usuario)
++    {
++        var cuenta = _usuarios.ObtenerCuentaDeUsuario(usuario);
++        var enSesion = true;
++
++        while (enSesion)
++        {
++            EscribirTitulo($"Operaciones bancarias - {usuario.NombreCompleto} ({cuenta.NumeroCuenta})");
++            Console.WriteLine("1) Consultar saldo");
++            Console.WriteLine("2) Registrar ingreso (depósito)");
++            Console.WriteLine("3) Registrar salida (retiro)");
++            Console.WriteLine("4) Transferir a otra cuenta");
++            Console.WriteLine("5) Ver historial de movimientos");
++            Console.WriteLine("6) Cambiar mi contraseña");
++            Console.WriteLine("7) Volver");
++            var opcion = LeerEntero("Selecciona una opción: ", 1, 7);
++
++            try
++            {
++                switch (opcion)
++                {
++                    case 1:
++                        ConsultarSaldo(cuenta);
++                        break;
++                    case 2:
++                        RegistrarIngreso(cuenta, usuario);
++                        break;
++                    case 3:
++                        RegistrarSalida(cuenta, usuario);
++                        break;
++                    case 4:
++                        Transferir(cuenta, usuario);
++                        break;
++                    case 5:
++                        VerHistorial(cuenta);
++                        break;
++                    case 6:
++                        CambiarContrasena(usuario);
++                        break;
++                    case 7:
++                        enSesion = false;
++                        break;
++                }
++            }
++            catch (Exception ex) when (ex is SaldoInsuficienteException or OperacionInvalidaException or CredencialesInvalidasException)
++            {
++                EscribirError(ex.Message);
++                Pausar();
++            }
++        }
++    }
++
++    private void ConsultarSaldo(Cuenta cuenta)
++    {
++        EscribirTitulo("Saldo actual");
++        Console.WriteLine($"Cuenta {cuenta.NumeroCuenta}: {FormatoMoneda.Formatear(_transacciones.ConsultarSaldo(cuenta))}");
++        Pausar();
++    }
++
++    private void RegistrarIngreso(Cuenta cuenta, Usuario usuario)
++    {
++        EscribirTitulo("Registrar ingreso");
++        var monto = LeerDecimal("Monto a ingresar: ");
++        var descripcion = LeerTexto("Descripción (por ejemplo: sueldo, depósito): ");
++
++        _transacciones.RegistrarIngreso(cuenta, monto, descripcion, usuario.NombreUsuario);
++        EscribirExito($"Ingreso registrado. Nuevo saldo: {FormatoMoneda.Formatear(cuenta.Saldo)}");
++        Pausar();
++    }
++
++    private void RegistrarSalida(Cuenta cuenta, Usuario usuario)
++    {
++        EscribirTitulo("Registrar salida");
++        var monto = LeerDecimal("Monto a retirar: ");
++        var descripcion = LeerTexto("Descripción (por ejemplo: pago, compra): ");
++
++        _transacciones.RegistrarSalida(cuenta, monto, descripcion, usuario.NombreUsuario);
++        EscribirExito($"Salida registrada. Nuevo saldo: {FormatoMoneda.Formatear(cuenta.Saldo)}");
++        Pausar();
++    }
++
++    private void Transferir(Cuenta cuentaOrigen, Usuario usuario)
++    {
++        EscribirTitulo("Transferencia");
++        var numeroDestino = LeerTexto("Número de cuenta destino (ej: CTA-000002): ");
++        var cuentaDestino = _transacciones.BuscarCuentaPorNumero(numeroDestino);
++
++        if (cuentaDestino is null)
++        {
++            EscribirError("No existe ninguna cuenta con ese número.");
++            Pausar();
++            return;
++        }
++
++        var monto = LeerDecimal("Monto a transferir: ");
++        var descripcion = LeerTexto("Descripción: ");
++
++        _transacciones.Transferir(cuentaOrigen, cuentaDestino, monto, descripcion, usuario.NombreUsuario);
++        EscribirExito($"Transferencia realizada. Nuevo saldo: {FormatoMoneda.Formatear(cuentaOrigen.Saldo)}");
++        Pausar();
++    }
++
++    private void VerHistorial(Cuenta cuenta)
++    {
++        EscribirTitulo("Historial de movimientos");
++        var movimientos = _transacciones.ObtenerHistorial(cuenta);
++
++        if (movimientos.Count == 0)
++        {
++            Console.WriteLine("Aún no hay movimientos registrados.");
++        }
++        else
++        {
++            foreach (var movimiento in movimientos)
++            {
++                Console.WriteLine(
++                    $"[{movimiento.FechaHora:yyyy-MM-dd HH:mm:ss}] {movimiento.Tipo,-22} " +
++                    $"Monto: {FormatoMoneda.Formatear(movimiento.Monto),-12} Saldo resultante: {FormatoMoneda.Formatear(movimiento.SaldoResultante)} " +
++                    $"- {movimiento.Descripcion}");
++            }
++        }
++        Pausar();
++    }
++
++    private void CambiarContrasena(Usuario usuario)
++    {
++        EscribirTitulo("Cambiar contraseña");
++        var actual = LeerContrasena("Contraseña actual: ");
++        var nueva = LeerContrasena("Contraseña nueva: ");
++
++        _autenticacion.CambiarContrasena(usuario, actual, nueva);
++        EscribirExito("Contraseña actualizada correctamente.");
++        Pausar();
++    }
++}
+diff --git a/BankingSystem/src/BankingSystem/Modelos/Cuenta.cs b/BankingSystem/src/BankingSystem/Modelos/Cuenta.cs
+new file mode 100644
+index 0000000..ff62f6b
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Modelos/Cuenta.cs
+@@ -0,0 +1,10 @@
++namespace BankingSystem.Modelos;
++
++public class Cuenta
++{
++    public int Id { get; set; }
++    public int UsuarioId { get; set; }
++    public string NumeroCuenta { get; set; } = string.Empty;
++    public decimal Saldo { get; set; }
++    public DateTime FechaCreacion { get; set; } = DateTime.Now;
++}
+diff --git a/BankingSystem/src/BankingSystem/Modelos/Transaccion.cs b/BankingSystem/src/BankingSystem/Modelos/Transaccion.cs
+new file mode 100644
+index 0000000..494d500
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Modelos/Transaccion.cs
+@@ -0,0 +1,21 @@
++namespace BankingSystem.Modelos;
++
++public enum TipoTransaccion
++{
++    Ingreso,
++    Salida,
++    TransferenciaEnviada,
++    TransferenciaRecibida
++}
++
++public class Transaccion
++{
++    public int Id { get; set; }
++    public int CuentaId { get; set; }
++    public int? CuentaContrapartId { get; set; }
++    public TipoTransaccion Tipo { get; set; }
++    public decimal Monto { get; set; }
++    public decimal SaldoResultante { get; set; }
++    public string Descripcion { get; set; } = string.Empty;
++    public DateTime FechaHora { get; set; } = DateTime.Now;
++}
+diff --git a/BankingSystem/src/BankingSystem/Modelos/Usuario.cs b/BankingSystem/src/BankingSystem/Modelos/Usuario.cs
+new file mode 100644
+index 0000000..933f22f
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Modelos/Usuario.cs
+@@ -0,0 +1,14 @@
++namespace BankingSystem.Modelos;
++
++public class Usuario
++{
++    public int Id { get; set; }
++    public string NombreUsuario { get; set; } = string.Empty;
++    public string NombreCompleto { get; set; } = string.Empty;
++    public string HashContrasena { get; set; } = string.Empty;
++    public string Sal { get; set; } = string.Empty;
++    public bool EsAdministrador { get; set; }
++    public bool Activo { get; set; } = true;
++    public DateTime FechaCreacion { get; set; } = DateTime.Now;
++    public int CuentaId { get; set; }
++}
+diff --git a/BankingSystem/src/BankingSystem/Program.cs b/BankingSystem/src/BankingSystem/Program.cs
+new file mode 100644
+index 0000000..0367af7
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Program.cs
+@@ -0,0 +1,18 @@
++using BankingSystem.Datos;
++using BankingSystem.Interfaz;
++using BankingSystem.Modelos;
++using BankingSystem.Servicios;
++
++Console.OutputEncoding = System.Text.Encoding.UTF8;
++
++var registro = new ServicioRegistro(RutasDatos.CarpetaLogs);
++var almacenUsuarios = new AlmacenJson<Usuario>(RutasDatos.ArchivoUsuarios);
++var almacenCuentas = new AlmacenJson<Cuenta>(RutasDatos.ArchivoCuentas);
++var almacenTransacciones = new AlmacenJson<Transaccion>(RutasDatos.ArchivoTransacciones);
++
++var servicioAutenticacion = new ServicioAutenticacion(almacenUsuarios, almacenCuentas, registro);
++var servicioUsuarios = new ServicioUsuarios(almacenUsuarios, almacenCuentas, registro);
++var servicioTransacciones = new ServicioTransacciones(almacenCuentas, almacenTransacciones, registro);
++
++var menu = new MenuPrincipal(servicioAutenticacion, servicioUsuarios, servicioTransacciones, registro);
++menu.Ejecutar();
+diff --git a/BankingSystem/src/BankingSystem/Servicios/ExcepcionesBancarias.cs b/BankingSystem/src/BankingSystem/Servicios/ExcepcionesBancarias.cs
+new file mode 100644
+index 0000000..ff43dde
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Servicios/ExcepcionesBancarias.cs
+@@ -0,0 +1,21 @@
++namespace BankingSystem.Servicios;
++
++public class CredencialesInvalidasException : Exception
++{
++    public CredencialesInvalidasException(string mensaje) : base(mensaje) { }
++}
++
++public class SaldoInsuficienteException : Exception
++{
++    public SaldoInsuficienteException(string mensaje) : base(mensaje) { }
++}
++
++public class OperacionInvalidaException : Exception
++{
++    public OperacionInvalidaException(string mensaje) : base(mensaje) { }
++}
++
++public class EntidadNoEncontradaException : Exception
++{
++    public EntidadNoEncontradaException(string mensaje) : base(mensaje) { }
++}
+diff --git a/BankingSystem/src/BankingSystem/Servicios/FormatoMoneda.cs b/BankingSystem/src/BankingSystem/Servicios/FormatoMoneda.cs
+new file mode 100644
+index 0000000..a37bb27
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Servicios/FormatoMoneda.cs
+@@ -0,0 +1,13 @@
++using System.Globalization;
++
++namespace BankingSystem.Servicios;
++
++/// <summary>
++/// Formatea montos en dólares de forma consistente sin depender de la
++/// configuración regional del sistema operativo donde corra la aplicación.
++/// </summary>
++public static class FormatoMoneda
++{
++    public static string Formatear(decimal monto) =>
++        "$" + monto.ToString("N2", CultureInfo.InvariantCulture);
++}
+diff --git a/BankingSystem/src/BankingSystem/Servicios/ServicioAutenticacion.cs b/BankingSystem/src/BankingSystem/Servicios/ServicioAutenticacion.cs
+new file mode 100644
+index 0000000..7694b5a
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Servicios/ServicioAutenticacion.cs
+@@ -0,0 +1,96 @@
++using BankingSystem.Datos;
++using BankingSystem.Modelos;
++
++namespace BankingSystem.Servicios;
++
++/// <summary>
++/// Maneja el inicio de sesión por usuario y contraseña, y garantiza que
++/// exista al menos un administrador cuando el sistema arranca por primera vez.
++/// </summary>
++public class ServicioAutenticacion
++{
++    private readonly AlmacenJson<Usuario> _usuarios;
++    private readonly AlmacenJson<Cuenta> _cuentas;
++    private readonly ServicioRegistro _registro;
++
++    public ServicioAutenticacion(AlmacenJson<Usuario> usuarios, AlmacenJson<Cuenta> cuentas, ServicioRegistro registro)
++    {
++        _usuarios = usuarios;
++        _cuentas = cuentas;
++        _registro = registro;
++        AsegurarAdministradorPorDefecto();
++    }
++
++    private void AsegurarAdministradorPorDefecto()
++    {
++        if (_usuarios.ObtenerTodos().Any())
++        {
++            return;
++        }
++
++        const string usuarioAdmin = "admin";
++        const string contrasenaAdmin = "Admin123!";
++
++        var (hash, sal) = ServicioContrasenas.Generar(contrasenaAdmin);
++        var siguienteIdUsuario = 1;
++        var siguienteIdCuenta = 1;
++
++        var cuenta = new Cuenta
++        {
++            Id = siguienteIdCuenta,
++            UsuarioId = siguienteIdUsuario,
++            NumeroCuenta = GenerarNumeroCuenta(siguienteIdCuenta),
++            Saldo = 0m
++        };
++        _cuentas.Agregar(cuenta);
++
++        var admin = new Usuario
++        {
++            Id = siguienteIdUsuario,
++            NombreUsuario = usuarioAdmin,
++            NombreCompleto = "Administrador",
++            HashContrasena = hash,
++            Sal = sal,
++            EsAdministrador = true,
++            Activo = true,
++            CuentaId = cuenta.Id
++        };
++        _usuarios.Agregar(admin);
++
++        _registro.Registrar(
++            $"Usuario administrador por defecto creado (usuario: {usuarioAdmin}, contraseña inicial: {contrasenaAdmin}).",
++            "sistema");
++    }
++
++    public static string GenerarNumeroCuenta(int idCuenta) => $"CTA-{idCuenta:D6}";
++
++    public Usuario IniciarSesion(string nombreUsuario, string contrasena)
++    {
++        var usuario = _usuarios.BuscarPor(u =>
++            string.Equals(u.NombreUsuario, nombreUsuario, StringComparison.OrdinalIgnoreCase));
++
++        if (usuario is null || !usuario.Activo || !ServicioContrasenas.Verificar(contrasena, usuario.HashContrasena, usuario.Sal))
++        {
++            _registro.Registrar($"Intento de inicio de sesión fallido para '{nombreUsuario}'.", "sistema");
++            throw new CredencialesInvalidasException("Usuario o contraseña incorrectos, o la cuenta está inactiva.");
++        }
++
++        _registro.Registrar("Inicio de sesión exitoso.", usuario.NombreUsuario);
++        return usuario;
++    }
++
++    public void CambiarContrasena(Usuario usuario, string contrasenaActual, string contrasenaNueva)
++    {
++        if (!ServicioContrasenas.Verificar(contrasenaActual, usuario.HashContrasena, usuario.Sal))
++        {
++            throw new CredencialesInvalidasException("La contraseña actual no es correcta.");
++        }
++
++        var (hash, sal) = ServicioContrasenas.Generar(contrasenaNueva);
++        usuario.HashContrasena = hash;
++        usuario.Sal = sal;
++        _usuarios.Actualizar();
++
++        _registro.Registrar("Contraseña actualizada.", usuario.NombreUsuario);
++    }
++}
+diff --git a/BankingSystem/src/BankingSystem/Servicios/ServicioContrasenas.cs b/BankingSystem/src/BankingSystem/Servicios/ServicioContrasenas.cs
+new file mode 100644
+index 0000000..f598d11
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Servicios/ServicioContrasenas.cs
+@@ -0,0 +1,42 @@
++using System.Security.Cryptography;
++
++namespace BankingSystem.Servicios;
++
++/// <summary>
++/// Genera y verifica hashes de contraseñas usando PBKDF2 (HMAC-SHA256)
++/// con una sal aleatoria distinta por usuario.
++/// </summary>
++public static class ServicioContrasenas
++{
++    private const int TamanoSalBytes = 16;
++    private const int TamanoHashBytes = 32;
++    private const int Iteraciones = 100_000;
++
++    public static (string Hash, string Sal) Generar(string contrasenaPlana)
++    {
++        var sal = RandomNumberGenerator.GetBytes(TamanoSalBytes);
++        var hash = Rfc2898DeriveBytes.Pbkdf2(
++            contrasenaPlana,
++            sal,
++            Iteraciones,
++            HashAlgorithmName.SHA256,
++            TamanoHashBytes);
++
++        return (Convert.ToBase64String(hash), Convert.ToBase64String(sal));
++    }
++
++    public static bool Verificar(string contrasenaPlana, string hashAlmacenado, string salAlmacenada)
++    {
++        var sal = Convert.FromBase64String(salAlmacenada);
++        var hashEsperado = Convert.FromBase64String(hashAlmacenado);
++
++        var hashCalculado = Rfc2898DeriveBytes.Pbkdf2(
++            contrasenaPlana,
++            sal,
++            Iteraciones,
++            HashAlgorithmName.SHA256,
++            hashEsperado.Length);
++
++        return CryptographicOperations.FixedTimeEquals(hashCalculado, hashEsperado);
++    }
++}
+diff --git a/BankingSystem/src/BankingSystem/Servicios/ServicioRegistro.cs b/BankingSystem/src/BankingSystem/Servicios/ServicioRegistro.cs
+new file mode 100644
+index 0000000..c4f8cd5
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Servicios/ServicioRegistro.cs
+@@ -0,0 +1,46 @@
++namespace BankingSystem.Servicios;
++
++/// <summary>
++/// Registra un log de auditoría de todas las operaciones relevantes del sistema.
++/// Cada línea queda marcada con fecha, hora y minuto exactos, y se agrupa
++/// en un archivo por día dentro de la carpeta "logs".
++/// </summary>
++public class ServicioRegistro
++{
++    private readonly string _carpetaLogs;
++    private readonly object _bloqueo = new();
++
++    public ServicioRegistro(string carpetaLogs)
++    {
++        _carpetaLogs = carpetaLogs;
++        Directory.CreateDirectory(_carpetaLogs);
++    }
++
++    private string ArchivoDelDia => Path.Combine(_carpetaLogs, $"{DateTime.Now:yyyy-MM-dd}.log");
++
++    public void Registrar(string mensaje, string? usuario = null)
++    {
++        var marcaTiempo = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
++        var quien = string.IsNullOrWhiteSpace(usuario) ? "sistema" : usuario;
++        var linea = $"[{marcaTiempo}] ({quien}) {mensaje}";
++
++        lock (_bloqueo)
++        {
++            File.AppendAllText(ArchivoDelDia, linea + Environment.NewLine);
++        }
++    }
++
++    public IReadOnlyList<string> LeerUltimasLineas(int cantidad)
++    {
++        if (!File.Exists(ArchivoDelDia))
++        {
++            return Array.Empty<string>();
++        }
++
++        lock (_bloqueo)
++        {
++            var todas = File.ReadAllLines(ArchivoDelDia);
++            return todas.Skip(Math.Max(0, todas.Length - cantidad)).ToArray();
++        }
++    }
++}
+diff --git a/BankingSystem/src/BankingSystem/Servicios/ServicioTransacciones.cs b/BankingSystem/src/BankingSystem/Servicios/ServicioTransacciones.cs
+new file mode 100644
+index 0000000..8a14914
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Servicios/ServicioTransacciones.cs
+@@ -0,0 +1,126 @@
++using BankingSystem.Datos;
++using BankingSystem.Modelos;
++
++namespace BankingSystem.Servicios;
++
++/// <summary>
++/// Operaciones bancarias: consulta de saldo, ingresos (depósitos),
++/// salidas (retiros), transferencias entre cuentas e historial de movimientos.
++/// </summary>
++public class ServicioTransacciones
++{
++    private readonly AlmacenJson<Cuenta> _cuentas;
++    private readonly AlmacenJson<Transaccion> _transacciones;
++    private readonly ServicioRegistro _registro;
++    private readonly object _bloqueoOperaciones = new();
++
++    public ServicioTransacciones(AlmacenJson<Cuenta> cuentas, AlmacenJson<Transaccion> transacciones, ServicioRegistro registro)
++    {
++        _cuentas = cuentas;
++        _transacciones = transacciones;
++        _registro = registro;
++    }
++
++    public decimal ConsultarSaldo(Cuenta cuenta) => cuenta.Saldo;
++
++    public Cuenta? BuscarCuentaPorNumero(string numeroCuenta) =>
++        _cuentas.BuscarPor(c => string.Equals(c.NumeroCuenta, numeroCuenta, StringComparison.OrdinalIgnoreCase));
++
++    public Transaccion RegistrarIngreso(Cuenta cuenta, decimal monto, string descripcion, string actor)
++    {
++        ValidarMonto(monto);
++
++        lock (_bloqueoOperaciones)
++        {
++            cuenta.Saldo += monto;
++            _cuentas.Actualizar();
++
++            var transaccion = CrearYGuardarTransaccion(cuenta.Id, null, TipoTransaccion.Ingreso, monto, cuenta.Saldo, descripcion);
++            _registro.Registrar($"Ingreso de {FormatoMoneda.Formatear(monto)} en cuenta {cuenta.NumeroCuenta}. Saldo nuevo: {FormatoMoneda.Formatear(cuenta.Saldo)}.", actor);
++            return transaccion;
++        }
++    }
++
++    public Transaccion RegistrarSalida(Cuenta cuenta, decimal monto, string descripcion, string actor)
++    {
++        ValidarMonto(monto);
++
++        lock (_bloqueoOperaciones)
++        {
++            if (cuenta.Saldo < monto)
++            {
++                throw new SaldoInsuficienteException(
++                    $"Saldo insuficiente. Saldo actual: {FormatoMoneda.Formatear(cuenta.Saldo)}, monto solicitado: {FormatoMoneda.Formatear(monto)}.");
++            }
++
++            cuenta.Saldo -= monto;
++            _cuentas.Actualizar();
++
++            var transaccion = CrearYGuardarTransaccion(cuenta.Id, null, TipoTransaccion.Salida, monto, cuenta.Saldo, descripcion);
++            _registro.Registrar($"Salida de {FormatoMoneda.Formatear(monto)} en cuenta {cuenta.NumeroCuenta}. Saldo nuevo: {FormatoMoneda.Formatear(cuenta.Saldo)}.", actor);
++            return transaccion;
++        }
++    }
++
++    public void Transferir(Cuenta cuentaOrigen, Cuenta cuentaDestino, decimal monto, string descripcion, string actor)
++    {
++        ValidarMonto(monto);
++
++        if (cuentaOrigen.Id == cuentaDestino.Id)
++        {
++            throw new OperacionInvalidaException("No puedes transferir a tu propia cuenta.");
++        }
++
++        lock (_bloqueoOperaciones)
++        {
++            if (cuentaOrigen.Saldo < monto)
++            {
++                throw new SaldoInsuficienteException(
++                    $"Saldo insuficiente para transferir. Saldo actual: {FormatoMoneda.Formatear(cuentaOrigen.Saldo)}, monto solicitado: {FormatoMoneda.Formatear(monto)}.");
++            }
++
++            cuentaOrigen.Saldo -= monto;
++            cuentaDestino.Saldo += monto;
++            _cuentas.Actualizar();
++
++            CrearYGuardarTransaccion(cuentaOrigen.Id, cuentaDestino.Id, TipoTransaccion.TransferenciaEnviada, monto, cuentaOrigen.Saldo, descripcion);
++            CrearYGuardarTransaccion(cuentaDestino.Id, cuentaOrigen.Id, TipoTransaccion.TransferenciaRecibida, monto, cuentaDestino.Saldo, descripcion);
++
++            _registro.Registrar(
++                $"Transferencia de {FormatoMoneda.Formatear(monto)} desde {cuentaOrigen.NumeroCuenta} hacia {cuentaDestino.NumeroCuenta}.",
++                actor);
++        }
++    }
++
++    public IReadOnlyList<Transaccion> ObtenerHistorial(Cuenta cuenta) =>
++        _transacciones.BuscarTodosPor(t => t.CuentaId == cuenta.Id)
++            .OrderByDescending(t => t.FechaHora)
++            .ToList();
++
++    private Transaccion CrearYGuardarTransaccion(
++        int cuentaId, int? cuentaContrapartId, TipoTransaccion tipo, decimal monto, decimal saldoResultante, string descripcion)
++    {
++        var siguienteId = _transacciones.ObtenerTodos().Select(t => t.Id).DefaultIfEmpty(0).Max() + 1;
++        var transaccion = new Transaccion
++        {
++            Id = siguienteId,
++            CuentaId = cuentaId,
++            CuentaContrapartId = cuentaContrapartId,
++            Tipo = tipo,
++            Monto = monto,
++            SaldoResultante = saldoResultante,
++            Descripcion = descripcion,
++            FechaHora = DateTime.Now
++        };
++        _transacciones.Agregar(transaccion);
++        return transaccion;
++    }
++
++    private static void ValidarMonto(decimal monto)
++    {
++        if (monto <= 0)
++        {
++            throw new OperacionInvalidaException("El monto debe ser mayor que cero.");
++        }
++    }
++}
+diff --git a/BankingSystem/src/BankingSystem/Servicios/ServicioUsuarios.cs b/BankingSystem/src/BankingSystem/Servicios/ServicioUsuarios.cs
+new file mode 100644
+index 0000000..53f65eb
+--- /dev/null
++++ b/BankingSystem/src/BankingSystem/Servicios/ServicioUsuarios.cs
+@@ -0,0 +1,139 @@
++using BankingSystem.Datos;
++using BankingSystem.Modelos;
++
++namespace BankingSystem.Servicios;
++
++/// <summary>
++/// CRUD de usuarios y sus cuentas asociadas. Pensado para ser usado
++/// desde el menú de administración.
++/// </summary>
++public class ServicioUsuarios
++{
++    private readonly AlmacenJson<Usuario> _usuarios;
++    private readonly AlmacenJson<Cuenta> _cuentas;
++    private readonly ServicioRegistro _registro;
++
++    public ServicioUsuarios(AlmacenJson<Usuario> usuarios, AlmacenJson<Cuenta> cuentas, ServicioRegistro registro)
++    {
++        _usuarios = usuarios;
++        _cuentas = cuentas;
++        _registro = registro;
++    }
++
++    public IReadOnlyList<Usuario> ObtenerTodos() =>
++        _usuarios.ObtenerTodos().OrderBy(u => u.Id).ToList();
++
++    public Usuario ObtenerPorId(int id) =>
++        _usuarios.BuscarPor(u => u.Id == id)
++        ?? throw new EntidadNoEncontradaException($"No existe un usuario con id {id}.");
++
++    public Cuenta ObtenerCuentaDeUsuario(Usuario usuario) =>
++        _cuentas.BuscarPor(c => c.Id == usuario.CuentaId)
++        ?? throw new EntidadNoEncontradaException($"El usuario '{usuario.NombreUsuario}' no tiene una cuenta asociada.");
++
++    // Create
++    public Usuario CrearUsuario(string nombreUsuario, string nombreCompleto, string contrasena, bool esAdministrador, string actor)
++    {
++        nombreUsuario = nombreUsuario.Trim();
++        if (string.IsNullOrWhiteSpace(nombreUsuario) || string.IsNullOrWhiteSpace(contrasena))
++        {
++            throw new OperacionInvalidaException("El nombre de usuario y la contraseña son obligatorios.");
++        }
++
++        if (_usuarios.BuscarPor(u => string.Equals(u.NombreUsuario, nombreUsuario, StringComparison.OrdinalIgnoreCase)) is not null)
++        {
++            throw new OperacionInvalidaException($"El usuario '{nombreUsuario}' ya existe.");
++        }
++
++        var siguienteIdUsuario = SiguienteId(_usuarios.ObtenerTodos().Select(u => u.Id));
++        var siguienteIdCuenta = SiguienteId(_cuentas.ObtenerTodos().Select(c => c.Id));
++
++        var cuenta = new Cuenta
++        {
++            Id = siguienteIdCuenta,
++            UsuarioId = siguienteIdUsuario,
++            NumeroCuenta = ServicioAutenticacion.GenerarNumeroCuenta(siguienteIdCuenta),
++            Saldo = 0m
++        };
++        _cuentas.Agregar(cuenta);
++
++        var (hash, sal) = ServicioContrasenas.Generar(contrasena);
++        var usuario = new Usuario
++        {
++            Id = siguienteIdUsuario,
++            NombreUsuario = nombreUsuario,
++            NombreCompleto = string.IsNullOrWhiteSpace(nombreCompleto) ? nombreUsuario : nombreCompleto,
++            HashContrasena = hash,
++            Sal = sal,
++            EsAdministrador = esAdministrador,
++            Activo = true,
++            CuentaId = cuenta.Id
++        };
++        _usuarios.Agregar(usuario);
++
++        _registro.Registrar($"Usuario '{nombreUsuario}' creado con cuenta {cuenta.NumeroCuenta} (admin: {esAdministrador}).", actor);
++        return usuario;
++    }
++
++    // Update
++    public void ActualizarDatos(Usuario usuario, string nombreCompleto, bool esAdministrador, bool activo, string actor)
++    {
++        usuario.NombreCompleto = string.IsNullOrWhiteSpace(nombreCompleto) ? usuario.NombreCompleto : nombreCompleto;
++        usuario.EsAdministrador = esAdministrador;
++        usuario.Activo = activo;
++        _usuarios.Actualizar();
++
++        _registro.Registrar($"Usuario '{usuario.NombreUsuario}' actualizado (admin: {esAdministrador}, activo: {activo}).", actor);
++    }
++
++    public void RestablecerContrasena(Usuario usuario, string contrasenaNueva, string actor)
++    {
++        if (string.IsNullOrWhiteSpace(contrasenaNueva))
++        {
++            throw new OperacionInvalidaException("La nueva contraseña no puede estar vacía.");
++        }
++
++        var (hash, sal) = ServicioContrasenas.Generar(contrasenaNueva);
++        usuario.HashContrasena = hash;
++        usuario.Sal = sal;
++        _usuarios.Actualizar();
++
++        _registro.Registrar($"Contraseña de '{usuario.NombreUsuario}' restablecida por un administrador.", actor);
++    }
++
++    // Delete
++    public void EliminarUsuario(Usuario usuario, Usuario solicitante)
++    {
++        if (usuario.Id == solicitante.Id)
++        {
++            throw new OperacionInvalidaException("No puedes eliminar tu propio usuario mientras tienes la sesión abierta.");
++        }
++
++        var cuenta = _cuentas.BuscarPor(c => c.Id == usuario.CuentaId);
++        if (cuenta is not null && cuenta.Saldo != 0m)
++        {
++            throw new OperacionInvalidaException(
++                $"No se puede eliminar: la cuenta {cuenta.NumeroCuenta} tiene saldo pendiente ({FormatoMoneda.Formatear(cuenta.Saldo)}).");
++        }
++
++        var otrosAdmins = _usuarios.BuscarTodosPor(u => u.EsAdministrador && u.Id != usuario.Id).Any();
++        if (usuario.EsAdministrador && !otrosAdmins)
++        {
++            throw new OperacionInvalidaException("No se puede eliminar al último administrador del sistema.");
++        }
++
++        if (cuenta is not null)
++        {
++            _cuentas.Eliminar(cuenta);
++        }
++        _usuarios.Eliminar(usuario);
++
++        _registro.Registrar($"Usuario '{usuario.NombreUsuario}' eliminado.", solicitante.NombreUsuario);
++    }
++
++    private static int SiguienteId(IEnumerable<int> idsExistentes)
++    {
++        var lista = idsExistentes.ToList();
++        return lista.Count == 0 ? 1 : lista.Max() + 1;
++    }
++}
+diff --git a/BankingSystem/tests/BankingSystem.Tests/BankingSystem.Tests.csproj b/BankingSystem/tests/BankingSystem.Tests/BankingSystem.Tests.csproj
+new file mode 100644
+index 0000000..dd1f3cd
+--- /dev/null
++++ b/BankingSystem/tests/BankingSystem.Tests/BankingSystem.Tests.csproj
+@@ -0,0 +1,29 @@
++<Project Sdk="Microsoft.NET.Sdk">
++
++  <PropertyGroup>
++    <TargetFramework>net8.0</TargetFramework>
++    <ImplicitUsings>enable</ImplicitUsings>
++    <Nullable>enable</Nullable>
++
++    <IsPackable>false</IsPackable>
++    <IsTestProject>true</IsTestProject>
++  </PropertyGroup>
++
++  <ItemGroup>
++    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
++    <PackageReference Include="xunit" Version="2.4.2" />
++    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.5">
++      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
++      <PrivateAssets>all</PrivateAssets>
++    </PackageReference>
++    <PackageReference Include="coverlet.collector" Version="6.0.0">
++      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
++      <PrivateAssets>all</PrivateAssets>
++    </PackageReference>
++  </ItemGroup>
++
++  <ItemGroup>
++    <ProjectReference Include="..\..\src\BankingSystem\BankingSystem.csproj" />
++  </ItemGroup>
++
++</Project>
+diff --git a/BankingSystem/tests/BankingSystem.Tests/GlobalUsings.cs b/BankingSystem/tests/BankingSystem.Tests/GlobalUsings.cs
+new file mode 100644
+index 0000000..8c927eb
+--- /dev/null
++++ b/BankingSystem/tests/BankingSystem.Tests/GlobalUsings.cs
+@@ -0,0 +1 @@
++global using Xunit;
+\ No newline at end of file
+diff --git a/BankingSystem/tests/BankingSystem.Tests/PruebaConAlmacenamientoTemporal.cs b/BankingSystem/tests/BankingSystem.Tests/PruebaConAlmacenamientoTemporal.cs
+new file mode 100644
+index 0000000..ba43d44
+--- /dev/null
++++ b/BankingSystem/tests/BankingSystem.Tests/PruebaConAlmacenamientoTemporal.cs
+@@ -0,0 +1,39 @@
++using BankingSystem.Datos;
++using BankingSystem.Modelos;
++using BankingSystem.Servicios;
++
++namespace BankingSystem.Tests;
++
++/// <summary>
++/// Base para pruebas que necesitan almacenes JSON y un servicio de registro
++/// reales, pero aislados en una carpeta temporal que se borra al finalizar.
++/// </summary>
++public abstract class PruebaConAlmacenamientoTemporal : IDisposable
++{
++    private readonly string _carpetaTemporal;
++
++    protected AlmacenJson<Usuario> Usuarios { get; }
++    protected AlmacenJson<Cuenta> Cuentas { get; }
++    protected AlmacenJson<Transaccion> Transacciones { get; }
++    protected ServicioRegistro Registro { get; }
++
++    protected PruebaConAlmacenamientoTemporal()
++    {
++        _carpetaTemporal = Path.Combine(Path.GetTempPath(), "BankingSystemTests_" + Guid.NewGuid());
++        Directory.CreateDirectory(_carpetaTemporal);
++
++        Usuarios = new AlmacenJson<Usuario>(Path.Combine(_carpetaTemporal, "usuarios.json"));
++        Cuentas = new AlmacenJson<Cuenta>(Path.Combine(_carpetaTemporal, "cuentas.json"));
++        Transacciones = new AlmacenJson<Transaccion>(Path.Combine(_carpetaTemporal, "transacciones.json"));
++        Registro = new ServicioRegistro(Path.Combine(_carpetaTemporal, "logs"));
++    }
++
++    public void Dispose()
++    {
++        if (Directory.Exists(_carpetaTemporal))
++        {
++            Directory.Delete(_carpetaTemporal, recursive: true);
++        }
++        GC.SuppressFinalize(this);
++    }
++}
+diff --git a/BankingSystem/tests/BankingSystem.Tests/ServicioAutenticacionTests.cs b/BankingSystem/tests/BankingSystem.Tests/ServicioAutenticacionTests.cs
+new file mode 100644
+index 0000000..2465a99
+--- /dev/null
++++ b/BankingSystem/tests/BankingSystem.Tests/ServicioAutenticacionTests.cs
+@@ -0,0 +1,57 @@
++using BankingSystem.Servicios;
++
++namespace BankingSystem.Tests;
++
++public class ServicioAutenticacionTests : PruebaConAlmacenamientoTemporal
++{
++    [Fact]
++    public void Constructor_CreaAdministradorPorDefecto_CuandoNoHayUsuarios()
++    {
++        var autenticacion = new ServicioAutenticacion(Usuarios, Cuentas, Registro);
++
++        var admin = autenticacion.IniciarSesion("admin", "Admin123!");
++
++        Assert.True(admin.EsAdministrador);
++        Assert.Single(Usuarios.ObtenerTodos());
++        Assert.Single(Cuentas.ObtenerTodos());
++    }
++
++    [Fact]
++    public void IniciarSesion_LanzaExcepcion_ConCredencialesIncorrectas()
++    {
++        var autenticacion = new ServicioAutenticacion(Usuarios, Cuentas, Registro);
++
++        Assert.Throws<CredencialesInvalidasException>(() => autenticacion.IniciarSesion("admin", "clave-incorrecta"));
++    }
++
++    [Fact]
++    public void IniciarSesion_LanzaExcepcion_ConUsuarioInexistente()
++    {
++        var autenticacion = new ServicioAutenticacion(Usuarios, Cuentas, Registro);
++
++        Assert.Throws<CredencialesInvalidasException>(() => autenticacion.IniciarSesion("no-existe", "cualquiera"));
++    }
++
++    [Fact]
++    public void CambiarContrasena_PermiteIniciarSesionConLaNueva()
++    {
++        var autenticacion = new ServicioAutenticacion(Usuarios, Cuentas, Registro);
++        var admin = autenticacion.IniciarSesion("admin", "Admin123!");
++
++        autenticacion.CambiarContrasena(admin, "Admin123!", "NuevaClave456!");
++
++        Assert.Throws<CredencialesInvalidasException>(() => autenticacion.IniciarSesion("admin", "Admin123!"));
++        var reconectado = autenticacion.IniciarSesion("admin", "NuevaClave456!");
++        Assert.Equal(admin.Id, reconectado.Id);
++    }
++
++    [Fact]
++    public void CambiarContrasena_LanzaExcepcion_SiLaActualEsIncorrecta()
++    {
++        var autenticacion = new ServicioAutenticacion(Usuarios, Cuentas, Registro);
++        var admin = autenticacion.IniciarSesion("admin", "Admin123!");
++
++        Assert.Throws<CredencialesInvalidasException>(
++            () => autenticacion.CambiarContrasena(admin, "clave-mala", "NuevaClave456!"));
++    }
++}
+diff --git a/BankingSystem/tests/BankingSystem.Tests/ServicioContrasenasTests.cs b/BankingSystem/tests/BankingSystem.Tests/ServicioContrasenasTests.cs
+new file mode 100644
+index 0000000..d268569
+--- /dev/null
++++ b/BankingSystem/tests/BankingSystem.Tests/ServicioContrasenasTests.cs
+@@ -0,0 +1,32 @@
++using BankingSystem.Servicios;
++
++namespace BankingSystem.Tests;
++
++public class ServicioContrasenasTests
++{
++    [Fact]
++    public void Generar_ProduceSalesDistintasParaLaMismaContrasena()
++    {
++        var (hash1, sal1) = ServicioContrasenas.Generar("MiClave123!");
++        var (hash2, sal2) = ServicioContrasenas.Generar("MiClave123!");
++
++        Assert.NotEqual(sal1, sal2);
++        Assert.NotEqual(hash1, hash2);
++    }
++
++    [Fact]
++    public void Verificar_RetornaVerdadero_ConLaContrasenaCorrecta()
++    {
++        var (hash, sal) = ServicioContrasenas.Generar("MiClave123!");
++
++        Assert.True(ServicioContrasenas.Verificar("MiClave123!", hash, sal));
++    }
++
++    [Fact]
++    public void Verificar_RetornaFalso_ConLaContrasenaIncorrecta()
++    {
++        var (hash, sal) = ServicioContrasenas.Generar("MiClave123!");
++
++        Assert.False(ServicioContrasenas.Verificar("OtraClave", hash, sal));
++    }
++}
+diff --git a/BankingSystem/tests/BankingSystem.Tests/ServicioTransaccionesTests.cs b/BankingSystem/tests/BankingSystem.Tests/ServicioTransaccionesTests.cs
+new file mode 100644
+index 0000000..d65a36b
+--- /dev/null
++++ b/BankingSystem/tests/BankingSystem.Tests/ServicioTransaccionesTests.cs
+@@ -0,0 +1,92 @@
++using BankingSystem.Modelos;
++using BankingSystem.Servicios;
++
++namespace BankingSystem.Tests;
++
++public class ServicioTransaccionesTests : PruebaConAlmacenamientoTemporal
++{
++    private readonly ServicioTransacciones _servicio;
++    private readonly Cuenta _cuentaA;
++    private readonly Cuenta _cuentaB;
++
++    public ServicioTransaccionesTests()
++    {
++        _servicio = new ServicioTransacciones(Cuentas, Transacciones, Registro);
++
++        _cuentaA = new Cuenta { Id = 1, UsuarioId = 1, NumeroCuenta = "CTA-000001", Saldo = 0m };
++        _cuentaB = new Cuenta { Id = 2, UsuarioId = 2, NumeroCuenta = "CTA-000002", Saldo = 0m };
++        Cuentas.Agregar(_cuentaA);
++        Cuentas.Agregar(_cuentaB);
++    }
++
++    [Fact]
++    public void RegistrarIngreso_AumentaElSaldoYQuedaEnElHistorial()
++    {
++        _servicio.RegistrarIngreso(_cuentaA, 500m, "sueldo", "prueba");
++
++        Assert.Equal(500m, _cuentaA.Saldo);
++        var historial = _servicio.ObtenerHistorial(_cuentaA);
++        Assert.Single(historial);
++        Assert.Equal(TipoTransaccion.Ingreso, historial[0].Tipo);
++    }
++
++    [Fact]
++    public void RegistrarIngreso_LanzaExcepcion_ConMontoNegativoOCero()
++    {
++        Assert.Throws<OperacionInvalidaException>(() => _servicio.RegistrarIngreso(_cuentaA, 0m, "x", "prueba"));
++        Assert.Throws<OperacionInvalidaException>(() => _servicio.RegistrarIngreso(_cuentaA, -10m, "x", "prueba"));
++    }
++
++    [Fact]
++    public void RegistrarSalida_DisminuyeElSaldo_CuandoHayFondos()
++    {
++        _servicio.RegistrarIngreso(_cuentaA, 500m, "sueldo", "prueba");
++
++        _servicio.RegistrarSalida(_cuentaA, 200m, "compra", "prueba");
++
++        Assert.Equal(300m, _cuentaA.Saldo);
++    }
++
++    [Fact]
++    public void RegistrarSalida_LanzaExcepcion_SiElSaldoEsInsuficiente()
++    {
++        Assert.Throws<SaldoInsuficienteException>(() => _servicio.RegistrarSalida(_cuentaA, 100m, "compra", "prueba"));
++        Assert.Equal(0m, _cuentaA.Saldo);
++    }
++
++    [Fact]
++    public void Transferir_MueveElDineroDeUnaCuentaAOtra()
++    {
++        _servicio.RegistrarIngreso(_cuentaA, 500m, "sueldo", "prueba");
++
++        _servicio.Transferir(_cuentaA, _cuentaB, 150m, "pago", "prueba");
++
++        Assert.Equal(350m, _cuentaA.Saldo);
++        Assert.Equal(150m, _cuentaB.Saldo);
++        Assert.Single(_servicio.ObtenerHistorial(_cuentaA).Where(t => t.Tipo == TipoTransaccion.TransferenciaEnviada));
++        Assert.Single(_servicio.ObtenerHistorial(_cuentaB).Where(t => t.Tipo == TipoTransaccion.TransferenciaRecibida));
++    }
++
++    [Fact]
++    public void Transferir_LanzaExcepcion_SiElSaldoEsInsuficiente()
++    {
++        Assert.Throws<SaldoInsuficienteException>(() => _servicio.Transferir(_cuentaA, _cuentaB, 50m, "pago", "prueba"));
++    }
++
++    [Fact]
++    public void Transferir_LanzaExcepcion_HaciaLaMismaCuenta()
++    {
++        _servicio.RegistrarIngreso(_cuentaA, 500m, "sueldo", "prueba");
++
++        Assert.Throws<OperacionInvalidaException>(() => _servicio.Transferir(_cuentaA, _cuentaA, 50m, "pago", "prueba"));
++    }
++
++    [Fact]
++    public void BuscarCuentaPorNumero_EncuentraLaCuentaSinImportarMayusculas()
++    {
++        var encontrada = _servicio.BuscarCuentaPorNumero("cta-000002");
++
++        Assert.NotNull(encontrada);
++        Assert.Equal(_cuentaB.Id, encontrada!.Id);
++    }
++}
+diff --git a/BankingSystem/tests/BankingSystem.Tests/ServicioUsuariosTests.cs b/BankingSystem/tests/BankingSystem.Tests/ServicioUsuariosTests.cs
+new file mode 100644
+index 0000000..6721203
+--- /dev/null
++++ b/BankingSystem/tests/BankingSystem.Tests/ServicioUsuariosTests.cs
+@@ -0,0 +1,101 @@
++using BankingSystem.Servicios;
++
++namespace BankingSystem.Tests;
++
++public class ServicioUsuariosTests : PruebaConAlmacenamientoTemporal
++{
++    private readonly ServicioUsuarios _servicio;
++
++    public ServicioUsuariosTests()
++    {
++        _servicio = new ServicioUsuarios(Usuarios, Cuentas, Registro);
++    }
++
++    [Fact]
++    public void CrearUsuario_AgregaElUsuarioConSuCuentaAsociada()
++    {
++        var usuario = _servicio.CrearUsuario("juan", "Juan Perez", "clave123", esAdministrador: false, actor: "admin");
++
++        Assert.Equal("juan", usuario.NombreUsuario);
++        var cuenta = _servicio.ObtenerCuentaDeUsuario(usuario);
++        Assert.Equal(0m, cuenta.Saldo);
++        Assert.Single(_servicio.ObtenerTodos());
++    }
++
++    [Fact]
++    public void CrearUsuario_LanzaExcepcion_SiElNombreYaExiste()
++    {
++        _servicio.CrearUsuario("juan", "Juan Perez", "clave123", false, "admin");
++
++        Assert.Throws<OperacionInvalidaException>(
++            () => _servicio.CrearUsuario("JUAN", "Otro Nombre", "otraClave", false, "admin"));
++    }
++
++    [Fact]
++    public void CrearUsuario_LanzaExcepcion_SiFaltanDatosObligatorios()
++    {
++        Assert.Throws<OperacionInvalidaException>(() => _servicio.CrearUsuario("", "Nombre", "clave123", false, "admin"));
++        Assert.Throws<OperacionInvalidaException>(() => _servicio.CrearUsuario("usuario", "Nombre", "", false, "admin"));
++    }
++
++    [Fact]
++    public void ActualizarDatos_ModificaNombreAdminYEstadoActivo()
++    {
++        var usuario = _servicio.CrearUsuario("juan", "Juan Perez", "clave123", false, "admin");
++
++        _servicio.ActualizarDatos(usuario, "Juan Actualizado", esAdministrador: true, activo: false, actor: "admin");
++
++        Assert.Equal("Juan Actualizado", usuario.NombreCompleto);
++        Assert.True(usuario.EsAdministrador);
++        Assert.False(usuario.Activo);
++    }
++
++    [Fact]
++    public void RestablecerContrasena_PermiteVerificarLaNueva()
++    {
++        var usuario = _servicio.CrearUsuario("juan", "Juan Perez", "clave123", false, "admin");
++
++        _servicio.RestablecerContrasena(usuario, "nuevaClave456", "admin");
++
++        Assert.True(ServicioContrasenas.Verificar("nuevaClave456", usuario.HashContrasena, usuario.Sal));
++    }
++
++    [Fact]
++    public void EliminarUsuario_QuitaElUsuarioYSuCuenta()
++    {
++        var admin = _servicio.CrearUsuario("admin", "Administrador", "AdminClave1", true, "sistema");
++        var usuario = _servicio.CrearUsuario("juan", "Juan Perez", "clave123", false, "admin");
++
++        _servicio.EliminarUsuario(usuario, admin);
++
++        Assert.Equal(1, _servicio.ObtenerTodos().Count);
++    }
++
++    [Fact]
++    public void EliminarUsuario_LanzaExcepcion_SiTieneSaldoPendiente()
++    {
++        var admin = _servicio.CrearUsuario("admin", "Administrador", "AdminClave1", true, "sistema");
++        var usuario = _servicio.CrearUsuario("juan", "Juan Perez", "clave123", false, "admin");
++        var cuenta = _servicio.ObtenerCuentaDeUsuario(usuario);
++        cuenta.Saldo = 100m;
++
++        Assert.Throws<OperacionInvalidaException>(() => _servicio.EliminarUsuario(usuario, admin));
++    }
++
++    [Fact]
++    public void EliminarUsuario_LanzaExcepcion_SiEsElUltimoAdministrador()
++    {
++        var admin = _servicio.CrearUsuario("admin", "Administrador", "AdminClave1", true, "sistema");
++        var juan = _servicio.CrearUsuario("juan", "Juan Perez", "clave123", false, "admin");
++
++        Assert.Throws<OperacionInvalidaException>(() => _servicio.EliminarUsuario(admin, juan));
++    }
++
++    [Fact]
++    public void EliminarUsuario_LanzaExcepcion_SiIntentaEliminarseASiMismo()
++    {
++        var admin = _servicio.CrearUsuario("admin", "Administrador", "AdminClave1", true, "sistema");
++
++        Assert.Throws<OperacionInvalidaException>(() => _servicio.EliminarUsuario(admin, admin));
++    }
++}
+-- 
+2.43.0
+
