@@ -26,7 +26,13 @@ else if (operador != ' '){
         if (operador == '+') {resultado= numero0 + numero1;}
         else if (operador == '-') {resultado= numero0 - numero1;}
         else if (operador == '*') {resultado= numero0 * numero1;}
-        else if (operador == '/') {resultado= numero0 / numero1;}
+        else if (operador == '/') {
+            if (numero1 == 0) {
+                Console.WriteLine("No se puede");
+                }
+            else {
+            resultado= numero0 / numero1;}
+        }
         Console.WriteLine($"Tu resultado es: {resultado}");
     }
     else {
